@@ -1042,6 +1042,15 @@ kbd {
   }
 }
 
+.app-foot {
+  margin: 20px 0 6px;
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--dim);
+  opacity: 0.7;
+}
+
 .stats-row {
   display: flex;
   gap: 10px;

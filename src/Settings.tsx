@@ -314,8 +314,9 @@ export default function SettingsPanel({
               ))}
             </ul>
           )}
-          <p className="hint">LightRain v0.1.0 · 数据保存在本机 SQLite</p>
         </section>
+
+        <p className="app-foot">{version ? "LightRain v" + version : "LightRain"}</p>
       </div>
     </div>
   );

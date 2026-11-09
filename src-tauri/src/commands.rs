@@ -573,13 +573,24 @@ pub fn app_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
+/// 把更新器的英文报错翻成人话
+fn friendly_update_error(raw: String) -> String {
+    if raw.contains("valid release JSON") || raw.contains("404") {
+        "没有找到更新信息：仓库里还没有「已发布」的版本（草稿不算），或者当前网络访问不了 GitHub。".into()
+    } else if raw.contains("dns") || raw.contains("connect") || raw.contains("timed out") {
+        "连接 GitHub 失败，请检查网络（可能需要代理）。".into()
+    } else {
+        format!("检查更新失败：{raw}")
+    }
+}
+
 #[tauri::command]
 pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
     let updater = build_updater(&app)?;
     let found = updater
         .check()
         .await
-        .map_err(|e| format!("检查更新失败：{e}"))?;
+        .map_err(|e| friendly_update_error(e.to_string()))?;
     Ok(found.map(|u| UpdateInfo {
         version: u.version.clone(),
         current: u.current_version.clone(),
@@ -593,7 +604,7 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
     let update = updater
         .check()
         .await
-        .map_err(|e| format!("检查更新失败：{e}"))?
+        .map_err(|e| friendly_update_error(e.to_string()))?
         .ok_or_else(|| "当前已经是最新版本".to_string())?;
 
     let handle = app.clone();

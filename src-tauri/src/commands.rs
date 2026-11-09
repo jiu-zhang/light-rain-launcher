@@ -20,6 +20,9 @@ pub struct IconCache(pub Mutex<HashMap<String, Option<String>>>);
 #[derive(Default)]
 pub struct Apps(pub Mutex<Vec<AppEntry>>);
 
+#[derive(Default)]
+pub struct RecentWatcher(pub Mutex<Option<notify::RecommendedWatcher>>);
+
 pub struct LastForeground(pub Mutex<Option<sys::Foreground>>);
 
 #[derive(Default)]
@@ -519,16 +522,50 @@ pub struct UpdateInfo {
 }
 
 fn build_updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
-    let endpoint = load_settings(app).update_endpoint;
-    let mut builder = app.updater_builder();
-    if !endpoint.trim().is_empty() {
-        let url = tauri::Url::parse(endpoint.trim())
-            .map_err(|_| "更新地址不是合法的 HTTPS 链接".to_string())?;
-        builder = builder
-            .endpoints(vec![url])
-            .map_err(|e| format!("更新地址无效：{e}"))?;
-    }
-    builder.build().map_err(|e| format!("更新器初始化失败：{e}"))
+    app.updater()
+        .map_err(|e| format!("更新器初始化失败：{e}"))
+}
+
+const ADVANCED_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced";
+
+/// Windows「在开始菜单、跳转列表和文件资源管理器中显示最近打开的项目」
+fn recent_tracking_enabled() -> bool {
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ};
+    use winreg::RegKey;
+    RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey_with_flags(ADVANCED_KEY, KEY_READ)
+        .and_then(|k| k.get_value::<u32, _>("Start_TrackDocs"))
+        .map(|v| v == 1)
+        // 读不到时按系统默认（开启）处理，避免误报
+        .unwrap_or(true)
+}
+
+#[tauri::command]
+pub fn recent_tracking() -> bool {
+    recent_tracking_enabled()
+}
+
+#[tauri::command]
+pub fn enable_recent_tracking(app: AppHandle) -> Result<(), String> {
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_SET_VALUE};
+    use winreg::RegKey;
+    let key = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey_with_flags(ADVANCED_KEY, KEY_SET_VALUE)
+        .map_err(|e| format!("无法打开注册表：{e}"))?;
+    key.set_value("Start_TrackDocs", &1u32)
+        .map_err(|e| format!("写入失败：{e}"))?;
+
+    // 立刻同步一次，并通知界面刷新
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        commands_sync(&handle);
+    });
+    Ok(())
+}
+
+fn commands_sync(app: &AppHandle) {
+    sync_system_recent(app);
+    let _ = app.emit("data-changed", ());
 }
 
 #[tauri::command]

@@ -6,14 +6,98 @@ mod recent;
 mod search;
 mod sys;
 
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Mutex;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use notify::Watcher as _;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::{ShortcutState};
 
-use commands::{Apps, IconCache, LastForeground, UiFlags};
+use commands::{Apps, IconCache, LastForeground, RecentWatcher, UiFlags};
+
+static LAST_SYNC: AtomicI64 = AtomicI64::new(0);
+static SYNC_PENDING: AtomicBool = AtomicBool::new(false);
+
+fn now_secs() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// 重新同步 Windows「最近使用」。throttle 用于避免频繁触发
+fn sync_recent_async(app: &tauri::AppHandle, throttle: bool) {
+    let now = now_secs();
+    if throttle {
+        let last = LAST_SYNC.load(Ordering::Relaxed);
+        if now - last < 20 {
+            return;
+        }
+    }
+    LAST_SYNC.store(now, Ordering::Relaxed);
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        if !commands::load_settings(&handle).sync_system_recent {
+            return;
+        }
+        commands::sync_system_recent(&handle);
+        let _ = handle.emit("data-changed", ());
+    });
+}
+
+/// 监听 Recent 目录：别的程序打开文件后，系统会往里写 .lnk，这里立刻同步
+fn start_recent_watcher(app: &tauri::AppHandle) {
+    let dir = match recent::recent_dir() {
+        Some(d) => d,
+        None => return,
+    };
+
+    let handle = app.clone();
+    let mut watcher = match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        let Ok(event) = res else { return };
+        let is_lnk = event.paths.iter().any(|p| {
+            p.extension()
+                .map(|e| e.eq_ignore_ascii_case("lnk"))
+                == Some(true)
+        });
+        if !is_lnk {
+            return;
+        }
+        if SYNC_PENDING.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let h = handle.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(900));
+            SYNC_PENDING.store(false, Ordering::SeqCst);
+            if !commands::load_settings(&h).sync_system_recent {
+                return;
+            }
+            commands::sync_system_recent(&h);
+            let _ = h.emit("data-changed", ());
+        });
+    }) {
+        Ok(w) => w,
+        Err(_) => return,
+    };
+
+    if watcher
+        .watch(&dir, notify::RecursiveMode::NonRecursive)
+        .is_err()
+    {
+        return;
+    }
+
+    if let Some(store) = app.try_state::<RecentWatcher>() {
+        if let Ok(mut guard) = store.0.lock() {
+            *guard = Some(watcher);
+        }
+    }
+}
 
 fn show_window(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -23,6 +107,8 @@ fn show_window(app: &tauri::AppHandle) {
         let _ = w.set_focus();
         let _ = app.emit("window-shown", ());
     }
+    // 每次呼出都顺手同步一次系统最近记录，防止别的程序刚打开过文件却看不到
+    sync_recent_async(app, true);
 }
 
 fn toggle_window(app: &tauri::AppHandle) {
@@ -90,6 +176,8 @@ pub fn run() {
             commands::refresh_recent,
             commands::refresh_apps,
             commands::app_version,
+            commands::recent_tracking,
+            commands::enable_recent_tracking,
             commands::check_update,
             commands::install_update,
             commands::set_blur_guard,
@@ -104,6 +192,7 @@ pub fn run() {
             let conn = db::open(&dir.join("light-rain.db"))?;
             app.manage(db::Db(Mutex::new(conn)));
             app.manage(Apps::default());
+            app.manage(RecentWatcher::default());
             app.manage(IconCache::default());
             app.manage(LastForeground(Mutex::new(None)));
             app.manage(UiFlags::default());
@@ -114,6 +203,8 @@ pub fn run() {
             if commands::register_hotkey(&handle, &settings.hotkey).is_err() {
                 let _ = commands::register_hotkey(&handle, "Ctrl+Alt+Space");
             }
+
+            start_recent_watcher(&handle);
 
             // 后台索引开始菜单里的应用
             let app_scan = handle.clone();

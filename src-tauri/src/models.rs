@@ -39,17 +39,10 @@ fn default_theme() -> String {
     "system".into()
 }
 
-fn default_endpoint() -> String {
-    String::new()
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     #[serde(default = "default_theme")]
     pub theme: String,
-    /// 更新清单地址，留空则用 tauri.conf.json 里配置的地址
-    #[serde(default = "default_endpoint")]
-    pub update_endpoint: String,
     pub hotkey: String,
     pub hide_on_blur: bool,
     pub autostart: bool,
@@ -61,7 +54,6 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             theme: "system".into(),
-            update_endpoint: String::new(),
             hotkey: "Alt+Space".into(),
             hide_on_blur: true,
             autostart: false,

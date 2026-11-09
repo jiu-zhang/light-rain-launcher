@@ -8,7 +8,7 @@ use windows::Win32::System::Com::{
 };
 use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
 
-fn recent_dir() -> Option<PathBuf> {
+pub fn recent_dir() -> Option<PathBuf> {
     std::env::var("APPDATA")
         .ok()
         .map(|v| PathBuf::from(v).join("Microsoft").join("Windows").join("Recent"))

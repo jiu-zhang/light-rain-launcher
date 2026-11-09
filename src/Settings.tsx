@@ -38,7 +38,6 @@ export default function SettingsPanel({
   const [stats, setStats] = useState<Stats | null>(null);
   const [limit, setLimit] = useState(String(settings.recent_limit));
   const [version, setVersion] = useState("");
-  const [endpoint, setEndpoint] = useState(settings.update_endpoint);
   const [checking, setChecking] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [updateError, setUpdateError] = useState("");
@@ -61,11 +60,6 @@ export default function SettingsPanel({
       un.then((fn) => fn());
     };
   }, []);
-
-  const commitEndpoint = () => {
-    const value = endpoint.trim();
-    if (value !== settings.update_endpoint) onChange({ update_endpoint: value });
-  };
 
   const checkNow = async () => {
     setChecking(true);
@@ -268,18 +262,6 @@ export default function SettingsPanel({
               {checking ? "检查中…" : "检查更新"}
             </button>
           </div>
-          <input
-            className="text-input"
-            value={endpoint}
-            spellCheck={false}
-            placeholder="https://github.com/账号/仓库/releases/latest/download/latest.json"
-            onChange={(e) => setEndpoint(e.target.value)}
-            onBlur={commitEndpoint}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commitEndpoint();
-            }}
-          />
-          <p className="hint">留空则使用打包时写入的地址。只接受用本应用私钥签名的安装包。</p>
           {updateError && <p className="hint error">{updateError}</p>}
           {updateInfo && (
             <div className="update-box">

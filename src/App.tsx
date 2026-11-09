@@ -175,6 +175,8 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [pinInfo, setPinInfo] = useState<ForegroundInfo | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [trackingOff, setTrackingOff] = useState(false);
+  const [tipDismissed, setTipDismissed] = useState(false);
   const [systemDark, setSystemDark] = useState(
     () => window.matchMedia("(prefers-color-scheme: dark)").matches
   );
@@ -227,6 +229,25 @@ export default function App() {
     setRecent(r.filter((x) => !x.pinned));
   }, [settings?.recent_limit]);
 
+  const checkTracking = useCallback(async () => {
+    try {
+      setTrackingOff(!(await api.recentTracking()));
+    } catch {
+      setTrackingOff(false);
+    }
+  }, []);
+
+  const enableTracking = useCallback(async () => {
+    try {
+      await api.enableRecentTracking();
+      setTrackingOff(false);
+      showToast("已开启系统最近记录，之后别处打开的文件会自动出现");
+      window.setTimeout(reload, 1200);
+    } catch (err) {
+      showToast(String(err));
+    }
+  }, [reload, showToast]);
+
   useEffect(() => {
     (async () => {
       const s = await api.getSettings();
@@ -234,9 +255,10 @@ export default function App() {
       const [p, r] = await Promise.all([api.listPinned(), api.listRecent(s.recent_limit)]);
       setPinned(p);
       setRecent(r);
+      checkTracking();
       inputRef.current?.focus();
     })();
-  }, []);
+  }, [checkTracking]);
 
   useEffect(() => {
     const q = query.trim();
@@ -337,6 +359,7 @@ export default function App() {
         setQuery("");
         setSel(0);
         reload();
+        checkTracking();
         window.setTimeout(() => inputRef.current?.focus(), 30);
       }),
       listen("data-changed", () => {
@@ -533,6 +556,22 @@ export default function App() {
           </svg>
         </button>
       </nav>
+
+      {trackingOff && !tipDismissed && settings?.sync_system_recent && (
+        <div className="tip">
+          <div className="tip-text">
+            Windows 目前没有记录你打开过的文件，这里收不到在别处打开的文件
+          </div>
+          <button className="ghost" onClick={enableTracking}>
+            一键开启
+          </button>
+          <button className="icon-btn" title="不再提示" onClick={() => setTipDismissed(true)}>
+            <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       <main className="list" ref={listRef}>
         {items.length === 0 && (

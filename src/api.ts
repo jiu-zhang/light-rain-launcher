@@ -28,5 +28,7 @@ export const quitApp = () => invoke<void>("quit_app");
 export const pinForegroundResult = (path: string) =>
   invoke<boolean>("pin_foreground_result", { path });
 export const appVersion = () => invoke<string>("app_version");
+export const recentTracking = () => invoke<boolean>("recent_tracking");
+export const enableRecentTracking = () => invoke<void>("enable_recent_tracking");
 export const checkUpdate = () => invoke<UpdateInfo | null>("check_update");
 export const installUpdate = () => invoke<void>("install_update");

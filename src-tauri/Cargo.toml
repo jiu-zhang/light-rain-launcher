@@ -1,6 +1,6 @@
 [package]
 name = "light-rain-launcher"
-version = "0.1.0"
+version = "0.1.1"
 description = "LightRain — 最近文件与置顶文件快速启动器"
 authors = ["LightRain"]
 edition = "2021"
@@ -28,6 +28,8 @@ pinyin = "0.10"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png"] }
 tauri-plugin-updater = "2"
+notify = "6"
+winreg = "0.52"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

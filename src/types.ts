@@ -38,7 +38,6 @@ export interface UpdateInfo {
 
 export interface AppSettings {
   theme: ThemeMode;
-  update_endpoint: string;
   hotkey: string;
   hide_on_blur: boolean;
   autostart: boolean;

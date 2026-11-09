@@ -1,0 +1,59 @@
+# ---------- 依赖 ----------
+node_modules/
+.pnp
+.pnp.js
+
+# ---------- 构建产物 ----------
+dist/
+dist-ssr/
+src-tauri/target/
+src-tauri/gen/schemas/
+*.rs.bk
+*.pdb
+
+# 本地打包出来的安装包 / 更新包，发版走 GitHub Release，不进仓库
+src-tauri/target/release/bundle/
+latest.json
+*.nsis.zip
+*.msi
+*.dmg
+
+# ---------- 日志 ----------
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---------- 环境变量 ----------
+.env
+.env.*
+!.env.example
+
+# ---------- 签名密钥，绝对不能提交 ----------
+*.key
+*.pem
+*.pfx
+*.p12
+
+# ---------- 编辑器 ----------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.iml
+*.suo
+*.user
+
+# ---------- 系统文件 ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- 杂项 ----------
+*.tmp
+*.bak
+.cache/
+coverage/
+
+# 说明：Cargo.lock 和 package-lock.json 是应用（非库），版本锁定有用，
+# 有意保留并提交，不要加进忽略列表。

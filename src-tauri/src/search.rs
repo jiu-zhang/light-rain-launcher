@@ -49,3 +49,23 @@ pub fn rank(name: &str, pinyin: &str, path: &str, query: &str) -> Option<(u8, i6
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exact_beats_prefix_and_contains() {
+        let exact = rank("report.xlsx", "bgxb", "C:\\report.xlsx", "report.xlsx").unwrap();
+        let prefix = rank("report-final.xlsx", "bgxb", "C:\\report-final.xlsx", "report").unwrap();
+        let contains = rank("my-report.xlsx", "bgxb", "C:\\my-report.xlsx", "report").unwrap();
+        assert!(exact.0 < prefix.0);
+        assert!(prefix.0 < contains.0);
+    }
+
+    #[test]
+    fn pinyin_matches_before_fuzzy() {
+        let py = rank("工作汇报.docx", "gzhb", "C:\\工作汇报.docx", "gzhb").unwrap();
+        assert_eq!(py.0, 3);
+    }
+}

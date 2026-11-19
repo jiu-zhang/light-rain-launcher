@@ -8,6 +8,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_updater::UpdaterExt;
 
 use crate::apps::{self, AppEntry};
+use crate::config;
 use crate::db::{self, Db};
 use crate::models::*;
 use crate::recent;
@@ -37,18 +38,7 @@ fn hide_main(app: &AppHandle) {
 }
 
 pub fn load_settings(app: &AppHandle) -> AppSettings {
-    let db = match app.try_state::<Db>() {
-        Some(d) => d,
-        None => return AppSettings::default(),
-    };
-    let conn = match db.0.lock() {
-        Ok(c) => c,
-        Err(_) => return AppSettings::default(),
-    };
-    match db::get_setting(&conn, "settings") {
-        Some(json) => serde_json::from_str(&json).unwrap_or_default(),
-        None => AppSettings::default(),
-    }
+    config::get_app_settings(app)
 }
 
 pub fn register_hotkey(app: &AppHandle, hotkey: &str) -> Result<(), String> {
@@ -133,7 +123,7 @@ pub fn search_files(
     }
 
     let entries = match state.0.lock() {
-        Ok(c) => db::list_scored(&c, 3000),
+        Ok(c) => db::search_candidates(&c, &query, 400),
         Err(_) => vec![],
     };
     for entry in entries {
@@ -229,15 +219,23 @@ pub fn reveal_file(app: AppHandle, path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn get_icon(app: AppHandle, path: String) -> Option<String> {
+pub async fn get_icon(app: AppHandle, path: String) -> Option<String> {
+    // 图标要读 shell、解码位图再编码 PNG，放到阻塞线程，避免拖住主线程
+    tauri::async_runtime::spawn_blocking(move || icon_for(&app, &path))
+        .await
+        .ok()
+        .flatten()
+}
+
+fn icon_for(app: &AppHandle, path: &str) -> Option<String> {
     let cache = app.state::<IconCache>();
-    let ext = Path::new(&path)
+    let ext = Path::new(path)
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
     // 快捷方式 / 可执行文件按完整路径缓存，其余按扩展名缓存（图标通常一致）
     let key = if ext.is_empty() || ext == "lnk" || ext == "exe" || ext == "ico" || ext == "url" {
-        path.clone()
+        path.to_string()
     } else {
         ext.clone()
     };
@@ -250,9 +248,9 @@ pub fn get_icon(app: AppHandle, path: String) -> Option<String> {
 
     // 快捷方式取目标程序的图标，而不是带小箭头的快捷方式图标
     let source = if ext == "lnk" {
-        recent::resolve_lnk(&path).unwrap_or_else(|| path.clone())
+        recent::resolve_lnk(path).unwrap_or_else(|| path.to_string())
     } else {
-        path.clone()
+        path.to_string()
     };
     let value =
         sys::icon_png(&source).map(|png| format!("data:image/png;base64,{}", STANDARD.encode(png)));
@@ -405,18 +403,48 @@ pub fn add_paths(state: State<'_, Db>, paths: Vec<String>) -> i64 {
 
 #[tauri::command]
 pub fn cleanup_missing(state: State<'_, Db>) -> i64 {
-    match state.0.lock() {
-        Ok(c) => db::cleanup_missing(&c),
-        Err(_) => 0,
+    // 锁内只取路径，文件系统检查放到锁外
+    let rows = match state.0.lock() {
+        Ok(c) => db::all_paths(&c),
+        Err(_) => return 0,
+    };
+    let missing: Vec<String> = rows
+        .into_iter()
+        .map(|(path, _)| path)
+        .filter(|path| !Path::new(path).exists())
+        .collect();
+    let n = missing.len() as i64;
+    if let Ok(c) = state.0.lock() {
+        db::delete_paths(&c, &missing);
     }
+    n
 }
 
 #[tauri::command]
 pub fn verify_files(state: State<'_, Db>) -> i64 {
-    match state.0.lock() {
-        Ok(c) => db::verify_all(&c),
-        Err(_) => 0,
+    let rows = match state.0.lock() {
+        Ok(c) => db::all_paths(&c),
+        Err(_) => return 0,
+    };
+
+    let mut missing = 0;
+    let mut changed: Vec<(String, bool)> = Vec::new();
+    for (path, old) in rows {
+        let now_missing = !Path::new(&path).exists();
+        if now_missing {
+            missing += 1;
+        }
+        if now_missing != (old == 1) {
+            changed.push((path, now_missing));
+        }
     }
+
+    if !changed.is_empty() {
+        if let Ok(c) = state.0.lock() {
+            db::apply_missing(&c, &changed);
+        }
+    }
+    missing
 }
 
 #[tauri::command]
@@ -476,14 +504,20 @@ pub fn get_settings(app: AppHandle) -> AppSettings {
 #[tauri::command]
 pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
     let previous = load_settings(&app);
-    {
-        let db = app.state::<Db>();
-        let conn = db.0.lock().map_err(|_| "数据库被占用".to_string())?;
-        let json = serde_json::to_string(&settings).map_err(|e| e.to_string())?;
-        db::set_setting(&conn, "settings", &json);
-    }
+
+    // 先注册新快捷键，失败就恢复旧的；确认成功后再落库
     if previous.hotkey != settings.hotkey {
-        register_hotkey(&app, &settings.hotkey)?;
+        if let Err(err) = register_hotkey(&app, &settings.hotkey) {
+            let _ = register_hotkey(&app, &previous.hotkey);
+            return Err(err);
+        }
+    }
+
+    if let Err(err) = config::set_json(&app, config::APP_SETTINGS, &settings) {
+        if previous.hotkey != settings.hotkey {
+            let _ = register_hotkey(&app, &previous.hotkey);
+        }
+        return Err(err);
     }
 
     use tauri_plugin_autostart::ManagerExt;

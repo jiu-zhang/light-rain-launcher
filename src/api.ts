@@ -1,5 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppSettings, FileEntry, ForegroundInfo, Stats, UpdateInfo } from "./types";
+import type {
+  AppSettings,
+  FileEntry,
+  ForegroundInfo,
+  MailConfig,
+  MailDraft,
+  Stats,
+  ToolHit,
+  ToolMeta,
+  UpdateInfo,
+} from "./types";
 
 export const listPinned = () => invoke<FileEntry[]>("list_pinned");
 export const listRecent = (limit = 80) => invoke<FileEntry[]>("list_recent", { limit });
@@ -22,7 +32,18 @@ export const getStats = () => invoke<Stats>("stats");
 export const getSettings = () => invoke<AppSettings>("get_settings");
 export const saveSettings = (settings: AppSettings) => invoke<void>("save_settings", { settings });
 export const refreshRecent = () => invoke<number>("refresh_recent");
-export const setBlurGuard = (suppress: boolean) => invoke<void>("set_blur_guard", { suppress });
+let blurHolds = 0;
+
+/** 按住失焦隐藏（可嵌套调用），用于面板、对话框打开期间 */
+export async function holdBlur(): Promise<void> {
+  blurHolds += 1;
+  await invoke<void>("set_blur_guard", { suppress: true });
+}
+
+export async function releaseBlur(): Promise<void> {
+  blurHolds = Math.max(0, blurHolds - 1);
+  if (blurHolds === 0) await invoke<void>("set_blur_guard", { suppress: false });
+}
 export const hideWindow = () => invoke<void>("hide_window");
 export const quitApp = () => invoke<void>("quit_app");
 export const pinForegroundResult = (path: string) =>
@@ -32,3 +53,22 @@ export const recentTracking = () => invoke<boolean>("recent_tracking");
 export const enableRecentTracking = () => invoke<void>("enable_recent_tracking");
 export const checkUpdate = () => invoke<UpdateInfo | null>("check_update");
 export const installUpdate = () => invoke<void>("install_update");
+
+export const toolList = () => invoke<ToolMeta[]>("tool_list");
+export const toolSearch = (query: string) => invoke<ToolHit[]>("tool_search", { query });
+export const toolRun = (toolId: string, hitId: string) =>
+  invoke<Record<string, unknown>>("tool_run", { toolId, hitId });
+export const getToolConfig = (toolId: string) =>
+  invoke<Record<string, unknown>>("tool_config_get", { toolId });
+export const setToolConfig = (toolId: string, value: Record<string, unknown>) =>
+  invoke<void>("tool_config_set", { toolId, value });
+
+export const mailConfigGet = () => invoke<MailConfig>("mail_config_get");
+export const mailConfigSet = (config: MailConfig) => invoke<void>("mail_config_set", { config });
+export const mailSecretStatus = () => invoke<boolean>("mail_secret_status");
+export const mailSecretSet = (password: string) => invoke<void>("mail_secret_set", { password });
+export const mailSecretClear = () => invoke<void>("mail_secret_clear");
+export const mailTest = (config: MailConfig, password?: string) =>
+  invoke<void>("mail_test", { config, password: password || null });
+export const mailSend = (config: MailConfig, draft: MailDraft, password?: string) =>
+  invoke<void>("mail_send", { config, password: password || null, draft });

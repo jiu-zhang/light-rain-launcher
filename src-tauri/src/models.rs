@@ -35,13 +35,9 @@ pub struct ForegroundInfo {
     pub candidates: Vec<Candidate>,
 }
 
-fn default_theme() -> String {
-    "system".into()
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppSettings {
-    #[serde(default = "default_theme")]
     pub theme: String,
     pub hotkey: String,
     pub hide_on_blur: bool,
@@ -60,6 +56,28 @@ impl Default for AppSettings {
             recent_limit: 60,
             sync_system_recent: true,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn partial_settings_keep_defaults() {
+        // 老版本没有 autostart / sync_system_recent 字段，不能因此把整个设置重置
+        let s: AppSettings = serde_json::from_str(r#"{"hotkey":"Ctrl+Shift+Space"}"#).unwrap();
+        assert_eq!(s.hotkey, "Ctrl+Shift+Space");
+        assert_eq!(s.theme, "system");
+        assert_eq!(s.recent_limit, 60);
+        assert!(s.hide_on_blur);
+    }
+
+    #[test]
+    fn unknown_settings_are_ignored() {
+        let s: AppSettings =
+            serde_json::from_str(r#"{"hotkey":"Alt+Space","future_field":true}"#).unwrap();
+        assert_eq!(s.hotkey, "Alt+Space");
     }
 }
 

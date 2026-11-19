@@ -29,14 +29,19 @@
 | `Ctrl+Enter` | 在资源管理器中定位 |
 | `Ctrl+P` | 置顶 / 取消置顶 |
 | `Ctrl+D` | 从列表移除 |
+| `Ctrl+E` | 用当前文件写邮件（行内也有邮件按钮） |
+| `Ctrl+Shift+E` | 以文件名为主题快速写邮件 |
 | `Ctrl+1/2/3` | 切换「全部 / 置顶 / 最近」 |
+| `Ctrl+,` | 打开设置 |
+| `Ctrl+/` | 快捷键说明 |
+| `>` | 工具模式（`>邮件`、`>设置` 等） |
 | `Esc` | 清空搜索，再按一次隐藏窗口 |
 
 > 默认快捷键是 `Alt+Space` 而不是 `Ctrl+Space` —— 后者是中文输入法的切换键，会冲突。
 
 ### 其他
 - **一键固定当前正在编辑的文件**：托盘菜单 →「固定当前正在编辑的文件」，按前台窗口标题反查文件路径，给出候选让你确认。
-- 窗口失焦自动隐藏、托盘常驻、开机自启、单实例。
+- 窗口失焦自动隐藏、托盘常驻、开机自启、单实例；设置页会临时取消置顶，方便对照其他窗口。
 - 系统原生文件图标（SHGetFileInfo 提取）。
 - 失效路径自动标记，支持一键校验 / 清理。
 
@@ -53,15 +58,22 @@
 ```
 light-rain-launcher/
 ├── src/                     前端
-│   ├── App.tsx              主面板：搜索、键盘导航、分组列表
-│   ├── Settings.tsx         设置页
+│   ├── App.tsx              主面板：搜索、键盘导航、分组列表、工具模式
+│   ├── Settings.tsx         设置页（基础 / 邮箱 / 数据 / 关于）
+│   ├── MailSettings.tsx     设置里的邮箱配置（服务商预设、默认收件人）
+│   ├── MailPanel.tsx        邮件撰写面板
+│   ├── ShortcutHelp.tsx     快捷键说明弹窗
 │   ├── PinDialog.tsx        固定当前文件的候选弹窗
+│   ├── components/          FileRow / ToolRow / 图标
 │   ├── api.ts / types.ts    invoke 封装与类型
 │   └── styles.css           全部样式
 ├── src-tauri/
 │   ├── src/lib.rs           窗口、托盘、热键、事件
 │   ├── src/commands.rs      Tauri 命令层
-│   ├── src/db.rs            SQLite 与 frecency
+│   ├── src/config.rs        统一配置读写（app.settings / tool.<id>.settings）
+│   ├── src/tools/mod.rs     工具注册表：list / search / run / config
+│   ├── src/tools/mail/      邮件工具：配置、DPAPI、SMTP
+│   ├── src/db.rs            SQLite、迁移与 frecency
 │   ├── src/recent.rs        系统「最近使用」读取
 │   ├── src/sys.rs           Win32 调用（打开 / 定位 / 图标 / 前台窗口）
 │   └── src/search.rs        搜索与排序
@@ -80,7 +92,48 @@ npm run tauri build    # 打包 NSIS 安装包
 
 `%APPDATA%\com.lightrain.launcher\light-rain.db`
 
-设置项以 JSON 存在同库的 `settings` 表里，删掉这个文件即恢复出厂状态。
+设置项以 JSON 存在同库的 `config` 表里（键为 `app.settings`，工具配置为 `tool.<id>.settings`），
+删掉这个文件即恢复出厂状态。旧版的 `settings` 表会在启动时自动迁移。
+
+## 扩展工具
+
+工具在编译期注册，不加载动态插件：
+
+1. 在 `src-tauri/src/tools/mod.rs` 的 `TOOLS` 里加元信息（id、名称、触发前缀）；
+2. 在 `tool_search` 里产出 `ToolHit`，在 `tool_run` 里加执行分支；
+3. 需要界面时，前端新增面板组件，并用 `ToolAction::OpenPanel { panel }` 打开。
+
+约定：
+
+- `tool_search` 只能读内存，不许做 IO；耗时操作一律 `async` + `spawn_blocking`，不要持有 `Db` 锁；
+- 工具配置走 `tool_config_get / tool_config_set`，结构体加 `#[serde(default)]`，避免新增字段时重置旧配置；
+- 密码、令牌不要放进工具配置，后续接 Windows DPAPI 单独存，前端只拿 `has_password`。
+
+输入 `>` 进入工具模式，例如 `>设置`、`>同步`。
+
+### 邮件工具
+
+- 账号在「设置 → 邮箱」里配置：选服务商（QQ / 163 / 126 / Gmail / Outlook）后只需填账号和授权码；输入本地部分会自动补全常用邮箱后缀；服务器、端口、加密方式收在「高级设置」里；
+- 同处可保存多个默认收件人，写邮件时自动填入，也可以点常用地址快速增删；发送成功后会记住最近收件人；
+- 输入 `>邮件`（或 `>mail`）打开撰写面板；在文件行按 `Ctrl+E`，把当前文件作为附件打开面板；
+- 撰写面板只负责收件人、主题、正文和附件，`Ctrl+Enter` 发送；抄送 / 密送默认收起；
+- 正文是简单富文本：加粗、斜体、下划线、列表，粘贴按纯文本处理；同时发送 HTML 与纯文本两份；
+- 文件可以直接拖进写信窗口作为附件；写信面板和设置页打开时不会因为点到别处而自动隐藏；
+- 密码用 Windows DPAPI 按当前用户加密保存，前端只能看到「已保存」，不会拿到明文；
+- 支持 465（SSL/TLS）、587（STARTTLS）和本机调试用的不加密模式；
+- 附件最多 10 个、总大小 20MB；发送失败会翻译成中文原因（授权码错误、TLS 端口不匹配、超时等）。
+
+服务商预设：
+
+| 邮箱 | 服务器 | 端口 | 加密 |
+| --- | --- | --- | --- |
+| QQ 邮箱 | `smtp.qq.com` | 465 | SSL/TLS |
+| 163 邮箱 | `smtp.163.com` | 465 | SSL/TLS |
+| 126 邮箱 | `smtp.126.com` | 465 | SSL/TLS |
+| Gmail | `smtp.gmail.com` | 465 | SSL/TLS |
+| Outlook | `smtp.office365.com` | 587 | STARTTLS |
+
+QQ / 163 需要在邮箱设置里生成「授权码」，不是登录密码。
 
 ## 发布与自动更新
 

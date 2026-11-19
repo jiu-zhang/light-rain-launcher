@@ -45,6 +45,46 @@ export interface AppSettings {
   sync_system_recent: boolean;
 }
 
+export type MailSecurity = "tls" | "startTls" | "none";
+
+export interface MailConfig {
+  host: string;
+  port: number;
+  security: MailSecurity;
+  username: string;
+  fromName: string;
+  defaultTo: string[];
+  recentTo: string[];
+}
+
+export interface MailDraft {
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject: string;
+  body: string;
+  html: string;
+  attachments: string[];
+}
+
+export interface ToolMeta {
+  id: string;
+  name: string;
+  description: string;
+  trigger: string;
+}
+
+export type ToolAction = { type: "run" } | { type: "openPanel"; panel: string };
+
+export interface ToolHit {
+  toolId: string;
+  hitId: string;
+  title: string;
+  subtitle: string;
+  icon: string;
+  action: ToolAction;
+}
+
 export interface Stats {
   total: number;
   pinned: number;

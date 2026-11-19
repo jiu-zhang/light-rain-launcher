@@ -1,10 +1,12 @@
 pub mod apps;
 mod commands;
+mod config;
 mod db;
 mod models;
 mod recent;
 mod search;
 mod sys;
+mod tools;
 
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Mutex;
@@ -184,6 +186,18 @@ pub fn run() {
             commands::hide_window,
             commands::quit_app,
             commands::pin_foreground_result,
+            tools::tool_list,
+            tools::tool_search,
+            tools::tool_run,
+            tools::tool_config_get,
+            tools::tool_config_set,
+            tools::mail::mail_config_get,
+            tools::mail::mail_config_set,
+            tools::mail::mail_secret_status,
+            tools::mail::mail_secret_set,
+            tools::mail::mail_secret_clear,
+            tools::mail::mail_test,
+            tools::mail::mail_send,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

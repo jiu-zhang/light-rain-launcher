@@ -20,6 +20,16 @@ export function humanSize(n: number): string {
   return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
+/** Tauri 命令既可能抛字符串，也可能抛 { code, message }，统一转成可展示文案 */
+export function errorText(err: unknown): string {
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object") {
+    const value = err as { message?: unknown };
+    if (typeof value.message === "string") return value.message;
+  }
+  return String(err);
+}
+
 export function dirOf(path: string): string {
   const i = path.lastIndexOf("\\");
   return i > 0 ? path.slice(0, i) : path;
